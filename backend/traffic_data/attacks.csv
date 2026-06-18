@@ -1,0 +1,1 @@
+timestamp,attack_type,source_ip,target_ip,payload,confidence,blocked,action_taken,layer

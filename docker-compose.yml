@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=development
+      - FLASK_APP=app.py
+      - MONGODB_URI=mongodb://mongo:27017/sarva_firewall
+      - CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+    depends_on:
+      - mongo
+    volumes:
+      - ./backend:/app
+    networks:
+      - sarva-network
+
+  mongo:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=sarva_firewall
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - sarva-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:5000
+    depends_on:
+      - backend
+    volumes:
+      - ./src:/app/src
+    networks:
+      - sarva-network
+
+volumes:
+  mongo_data:
+
+networks:
+  sarva-network:
+    driver: bridge
