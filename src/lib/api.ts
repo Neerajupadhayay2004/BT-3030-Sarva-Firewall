@@ -1,225 +1,206 @@
 // API Configuration and Integration
 const API_BASE_URL = '/api';
 
+/**
+ * Helper to get the JWT token from localStorage
+ */
+const getAuthToken = () => localStorage.getItem("token");
+
+/**
+ * Generic fetch wrapper to include auth headers
+ */
+export const secureFetch = async (url: string, options: RequestInit = {}) => {
+  const token = getAuthToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {}),
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+  };
+
+  const response = await fetch(url, { ...options, headers });
+  
+  // Handle unauthorized globally
+  if (response.status === 401) {
+    localStorage.removeItem("token");
+    localStorage.removeItem("isAuthenticated");
+    if (!window.location.pathname.includes('/login')) {
+      window.location.href = '/login';
+    }
+  }
+  
+  return response.json();
+};
+
+// Auth APIs
+export const authAPI = {
+  login: async (credentials: Record<string, string>) => {
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(credentials)
+    });
+    return response.json();
+  }
+};
+
 // Threat Detection APIs
 export const threatAPI = {
   analyzeEmail: async (content: string, sender: string) => {
-    const response = await fetch(`${API_BASE_URL}/threats/analyze/email`, {
+    return secureFetch(`${API_BASE_URL}/threats/analyze/email`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content, sender })
     });
-    return response.json();
   },
 
   analyzeMalware: async (behaviorLog: string) => {
-    const response = await fetch(`${API_BASE_URL}/threats/analyze/malware`, {
+    return secureFetch(`${API_BASE_URL}/threats/analyze/malware`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ behavior_log: behaviorLog })
     });
-    return response.json();
   },
 
   analyzeNetwork: async (packetData: Record<string, any>) => {
-    const response = await fetch(`${API_BASE_URL}/threats/analyze/network`, {
+    return secureFetch(`${API_BASE_URL}/threats/analyze/network`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(packetData)
     });
-    return response.json();
   },
 
   getRecentThreats: async (limit = 10) => {
-    const response = await fetch(`${API_BASE_URL}/threats/recent?limit=${limit}`);
-    return response.json();
+    return secureFetch(`${API_BASE_URL}/threats/recent?limit=${limit}`);
   },
 
   getThreatTimeline: async (hours = 24) => {
-    const response = await fetch(`${API_BASE_URL}/threats/timeline?hours=${hours}`);
-    return response.json();
+    return secureFetch(`${API_BASE_URL}/threats/timeline?hours=${hours}`);
   },
 
   getStats: async () => {
-    const response = await fetch(`${API_BASE_URL}/threats/stats`);
-    return response.json();
+    return secureFetch(`${API_BASE_URL}/threats/stats`);
   }
 };
 
 // OSINT APIs
 export const osintAPI = {
   investigateIP: async (ip: string) => {
-    const response = await fetch(`${API_BASE_URL}/osint/investigate/ip`, {
+    return secureFetch(`${API_BASE_URL}/osint/investigate/ip`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ip })
     });
-    return response.json();
   },
 
   investigateFile: async (hash: string) => {
-    const response = await fetch(`${API_BASE_URL}/osint/investigate/file`, {
+    return secureFetch(`${API_BASE_URL}/osint/investigate/file`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ hash })
     });
-    return response.json();
   },
 
   investigateURL: async (url: string) => {
-    const response = await fetch(`${API_BASE_URL}/osint/investigate/url`, {
+    return secureFetch(`${API_BASE_URL}/osint/investigate/url`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url })
     });
-    return response.json();
   },
 
   shodanSearch: async (query: string) => {
-    const response = await fetch(`${API_BASE_URL}/osint/shodan/search`, {
+    return secureFetch(`${API_BASE_URL}/osint/shodan/search`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query })
     });
-    return response.json();
   },
 
   abuseIPDBCheck: async (ip: string) => {
-    const response = await fetch(`${API_BASE_URL}/osint/abuseipdb/check`, {
+    return secureFetch(`${API_BASE_URL}/osint/abuseipdb/check`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ip })
     });
-    return response.json();
   }
 };
 
 // Attack Simulator APIs
 export const simulatorAPI = {
   startDDoS: async (targetIP: string, duration = 60) => {
-    const response = await fetch(`${API_BASE_URL}/simulator/ddos`, {
+    return secureFetch(`${API_BASE_URL}/simulator/ddos`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target_ip: targetIP, duration })
     });
-    return response.json();
   },
 
   startPhishing: async (targetEmail: string, emailCount = 100) => {
-    const response = await fetch(`${API_BASE_URL}/simulator/phishing`, {
+    return secureFetch(`${API_BASE_URL}/simulator/phishing`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target_email: targetEmail, email_count: emailCount })
     });
-    return response.json();
   },
 
   startMalware: async (systemID: string) => {
-    const response = await fetch(`${API_BASE_URL}/simulator/malware`, {
+    return secureFetch(`${API_BASE_URL}/simulator/malware`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ system_id: systemID })
     });
-    return response.json();
   },
 
   startPortScan: async (targetRange: string) => {
-    const response = await fetch(`${API_BASE_URL}/simulator/portscan`, {
+    return secureFetch(`${API_BASE_URL}/simulator/portscan`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target_range: targetRange })
     });
-    return response.json();
   },
 
   startSQLi: async (targetURL: string, payloadCount = 50) => {
-    const response = await fetch(`${API_BASE_URL}/simulator/sqli`, {
+    return secureFetch(`${API_BASE_URL}/simulator/sqli`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target_url: targetURL, payload_count: payloadCount })
     });
-    return response.json();
   }
 };
 
 // LLM Assistant APIs
 export const llmAPI = {
   analyzeThreat: async (threatData: Record<string, any>) => {
-    const response = await fetch(`${API_BASE_URL}/llm/analyze`, {
+    return secureFetch(`${API_BASE_URL}/advanced/llm/analyze-threat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(threatData)
     });
-    return response.json();
-  },
-
-  generateReport: async (threatLogs: Array<Record<string, any>>) => {
-    const response = await fetch(`${API_BASE_URL}/llm/report`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threat_logs: threatLogs })
-    });
-    return response.json();
-  },
-
-  chat: async (message: string) => {
-    const response = await fetch(`${API_BASE_URL}/llm/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message })
-    });
-    return response.json();
-  },
-
-  getRecommendations: async (threatType: string) => {
-    const response = await fetch(`${API_BASE_URL}/llm/recommendations`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threat_type: threatType })
-    });
-    return response.json();
   },
 
   getStatus: async () => {
-    const response = await fetch(`${API_BASE_URL}/llm/status`);
-    return response.json();
+    return secureFetch(`${API_BASE_URL}/advanced/llm/status`);
+  },
+
+  getRecommendations: async (threatType: string, severity: string) => {
+    return secureFetch(`${API_BASE_URL}/advanced/llm/recommendations`, {
+      method: 'POST',
+      body: JSON.stringify({ threat_type: threatType, severity })
+    });
   }
 };
 
 // Blockchain APIs
 export const blockchainAPI = {
   logThreat: async (threatData: Record<string, any>) => {
-    const response = await fetch(`${API_BASE_URL}/blockchain/log/threat`, {
+    return secureFetch(`${API_BASE_URL}/blockchain/log/threat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(threatData)
     });
-    return response.json();
-  },
-
-  verifyThreat: async (threatID: string) => {
-    const response = await fetch(`${API_BASE_URL}/blockchain/verify/${threatID}`);
-    return response.json();
   },
 
   getThreatHistory: async (limit = 100) => {
-    const response = await fetch(`${API_BASE_URL}/blockchain/history?limit=${limit}`);
-    return response.json();
+    return secureFetch(`${API_BASE_URL}/blockchain/history?limit=${limit}`);
   },
 
   getNetworkStatus: async () => {
-    const response = await fetch(`${API_BASE_URL}/blockchain/network/status`);
-    return response.json();
+    return secureFetch(`${API_BASE_URL}/blockchain/network/status`);
   }
 };
 
 // Health Check
 export const healthCheck = async () => {
-  const response = await fetch(`${API_BASE_URL}/health`);
-  return response.json();
+  return secureFetch(`${API_BASE_URL}/health`);
 };
 
 export default {
+  authAPI,
   threatAPI,
   osintAPI,
   simulatorAPI,

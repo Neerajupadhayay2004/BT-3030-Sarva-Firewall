@@ -261,25 +261,33 @@ class AdvancedMLPipeline:
         logger.info(f"Models saved to {self.model_dir}")
     
     def load_models(self):
-        """Load pre-trained models"""
+        """Load pre-trained models safely"""
         try:
-            if (self.model_dir / "best_random_forest_model.joblib").exists():
-                self.models['random_forest'] = joblib.load(self.model_dir / "best_random_forest_model.joblib")
+            # Secure path validation
+            def get_safe_model_path(filename):
+                safe_path = self.model_dir / filename
+                if not safe_path.resolve().is_relative_to(self.model_dir.resolve()):
+                    raise ValueError(f"Unauthorized model path: {filename}")
+                return safe_path
+
+            best_rf = self.model_dir / "best_random_forest_model.joblib"
+            if best_rf.exists():
+                self.models['random_forest'] = joblib.load(get_safe_model_path("best_random_forest_model.joblib"))
                 logger.info("Loaded user's best Random Forest model!")
             elif (self.model_dir / "random_forest_model.pkl").exists():
-                self.models['random_forest'] = joblib.load(self.model_dir / "random_forest_model.pkl")
+                self.models['random_forest'] = joblib.load(get_safe_model_path("random_forest_model.pkl"))
             
             if (self.model_dir / "gradient_boosting_model.pkl").exists():
-                self.models['gradient_boosting'] = joblib.load(self.model_dir / "gradient_boosting_model.pkl")
+                self.models['gradient_boosting'] = joblib.load(get_safe_model_path("gradient_boosting_model.pkl"))
             
             if (self.model_dir / "ensemble_model.pkl").exists():
-                self.models['ensemble'] = joblib.load(self.model_dir / "ensemble_model.pkl")
+                self.models['ensemble'] = joblib.load(get_safe_model_path("ensemble_model.pkl"))
             
             if (self.model_dir / "isolation_forest_model.pkl").exists():
-                self.models['isolation_forest'] = joblib.load(self.model_dir / "isolation_forest_model.pkl")
+                self.models['isolation_forest'] = joblib.load(get_safe_model_path("isolation_forest_model.pkl"))
             
             if (self.model_dir / "scaler.pkl").exists():
-                self.scalers['standard'] = joblib.load(self.model_dir / "scaler.pkl")
+                self.scalers['standard'] = joblib.load(get_safe_model_path("scaler.pkl"))
             
             if (self.model_dir / "feature_cols.json").exists():
                 with open(self.model_dir / "feature_cols.json") as f:

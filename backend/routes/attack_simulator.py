@@ -4,6 +4,8 @@ import random
 from datetime import datetime
 from services.firewall_tracker import firewall_tracker
 
+from utils.security import token_required
+
 logger = logging.getLogger(__name__)
 simulator_bp = Blueprint('simulator', __name__)
 
@@ -119,6 +121,7 @@ class AttackSimulator:
 simulator = AttackSimulator()
 
 @simulator_bp.route('/ddos', methods=['POST'])
+@token_required
 def start_ddos_simulation():
     """Start DDoS simulation"""
     try:
@@ -133,6 +136,7 @@ def start_ddos_simulation():
         return jsonify({'error': str(e)}), 500
 
 @simulator_bp.route('/phishing', methods=['POST'])
+@token_required
 def start_phishing_simulation():
     """Start phishing campaign simulation"""
     try:
@@ -147,6 +151,7 @@ def start_phishing_simulation():
         return jsonify({'error': str(e)}), 500
 
 @simulator_bp.route('/malware', methods=['POST'])
+@token_required
 def start_malware_simulation():
     """Start malware infection simulation"""
     try:
@@ -160,6 +165,7 @@ def start_malware_simulation():
         return jsonify({'error': str(e)}), 500
 
 @simulator_bp.route('/portscan', methods=['POST'])
+@token_required
 def start_portscan_simulation():
     """Start port scan simulation"""
     try:
@@ -173,6 +179,7 @@ def start_portscan_simulation():
         return jsonify({'error': str(e)}), 500
 
 @simulator_bp.route('/sqli', methods=['POST'])
+@token_required
 def start_sqli_simulation():
     """Start SQL injection simulation"""
     try:
@@ -187,6 +194,7 @@ def start_sqli_simulation():
         return jsonify({'error': str(e)}), 500
 
 @simulator_bp.route('/status/<sim_id>', methods=['GET'])
+@token_required
 def get_simulation_status(sim_id):
     """Get simulation status"""
     try:

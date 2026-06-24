@@ -1,1 +1,17 @@
 timestamp,attack_type,source_ip,target_ip,payload,confidence,blocked,action_taken,layer
+2026-06-20T16:07:58.438294,XSS Injection,127.0.0.1,localhost:5000,"/api/advanced/xss/log  {""payload"":""msg=<script>alert(\""hello\"");</script>"",""source"":""query-param""}",0.99,True,Blocked by WAF,application
+2026-06-20T16:07:58.564974,XSS Injection,127.0.0.1,localhost:5000,"/api/advanced/firewall/log-attack  {""attack_type"":""xss"",""payload"":""msg=<script>alert(\""hello\"");</sc",0.99,True,Blocked by WAF,application
+2026-06-20T16:08:31.456168,XSS Injection,127.0.0.1,localhost:5000,"/api/advanced/xss/log  {""payload"":""msg=<script>alert(\""hello\"");</script>"",""source"":""query-param""}",0.99,True,Blocked by WAF,application
+2026-06-20T16:08:31.603167,XSS Injection,127.0.0.1,localhost:5000,"/api/advanced/firewall/log-attack  {""attack_type"":""xss"",""payload"":""msg=<script>alert(\""hello\"");</sc",0.99,True,Blocked by WAF,application
+2026-06-20T16:31:09.234206,XSS Injection,127.0.0.1,localhost:5000,"/api/advanced/xss/log  {""payload"":""msg=<script>alert(\""hello\"");</script>"",""source"":""query-param""}",0.99,True,Blocked by WAF,application
+2026-06-20T16:31:09.371201,XSS Injection,127.0.0.1,localhost:5000,"/api/advanced/firewall/log-attack  {""attack_type"":""xss"",""payload"":""msg=<script>alert(\""hello\"");</sc",0.99,True,Blocked by WAF,application
+2026-06-23T15:14:11.274759,XSS Injection,127.0.0.1,localhost:5000,"/api/advanced/xss/log  {""payload"":""msg=<script>alert(\""hello\"");</script>"",""source"":""query-param""}",0.99,True,Blocked by WAF,application
+2026-06-23T15:14:11.461039,XSS Injection,127.0.0.1,localhost:5000,"/api/advanced/firewall/log-attack  {""attack_type"":""xss"",""payload"":""msg=<script>alert(\""hello\"");</sc",0.99,True,Blocked by WAF,application
+2026-06-23T15:16:09.941251,XSS Injection,127.0.0.1,localhost:5000,"/api/advanced/xss/log  {""payload"":""msg=<script>alert(\""hello\"");</script>"",""source"":""query-param""}",0.99,True,Blocked by WAF,application
+2026-06-23T15:16:09.998694,XSS Injection,127.0.0.1,localhost:5000,"/api/advanced/firewall/log-attack  {""attack_type"":""xss"",""payload"":""msg=<script>alert(\""hello\"");</sc",0.99,True,Blocked by WAF,application
+2026-06-23T15:17:04.335549,XSS Injection,127.0.0.1,localhost:5000,"/api/advanced/xss/log  {""payload"":""msg=<script>alert(\""hello\"");</script>"",""source"":""query-param""}",0.99,True,Blocked by WAF,application
+2026-06-23T15:17:04.398253,XSS Injection,127.0.0.1,localhost:5000,"/api/advanced/firewall/log-attack  {""attack_type"":""xss"",""payload"":""msg=<script>alert(\""hello\"");</sc",0.99,True,Blocked by WAF,application
+2026-06-23T16:07:23.740549,XSS Injection,127.0.0.1,localhost:5000,"/api/advanced/xss/log  {""payload"":""msg=<script>alert(\""hello\"");</script>"",""source"":""query-param""}",0.99,True,Blocked by WAF,application
+2026-06-23T16:07:23.947430,XSS Injection,127.0.0.1,localhost:5000,"/api/advanced/firewall/log-attack  {""attack_type"":""xss"",""payload"":""msg=<script>alert(\""hello\"");</sc",0.99,True,Blocked by WAF,application
+2026-06-23T16:08:48.183853,XSS Injection,127.0.0.1,localhost:5000,"/api/advanced/xss/log  {""payload"":""msg=<script>alert(\""hello\"");</script>"",""source"":""query-param""}",0.99,True,Blocked by WAF,application
+2026-06-23T16:08:48.397584,XSS Injection,127.0.0.1,localhost:5000,"/api/advanced/firewall/log-attack  {""attack_type"":""xss"",""payload"":""msg=<script>alert(\""hello\"");</sc",0.99,True,Blocked by WAF,application

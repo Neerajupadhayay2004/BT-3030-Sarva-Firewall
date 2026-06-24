@@ -1,0 +1,7 @@
+find . \
+-not -path "./node_modules/*" \
+-not -path "./.venv/*" \
+-not -path "./dist/*" \
+-type f \
+\( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.json" \) \
+-exec cat {} \; > full_project.txt

@@ -11,6 +11,14 @@ from functools import lru_cache
 import subprocess
 import time
 
+# Optional llama.cpp python bindings (llama-cpp-python). If available, prefer local inference.
+try:
+    from llama_cpp import Llama
+    LLAMA_CPP_AVAILABLE = True
+except Exception:
+    Llama = None
+    LLAMA_CPP_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,11 +59,31 @@ class LocalLLMService:
         }
     }
     
-    def __init__(self, base_url='http://localhost:11434', model='llama3.2'):
+    def __init__(self, base_url='http://localhost:11434', model='llama3.2', engine: Optional[str]=None, model_path: Optional[str]=None):
+        """Initialize the LLM service.
+        engine: 'llama_cpp' or 'ollama'. If not provided, prefer llama_cpp when available.
+        model_path: file path to a local ggml/quantized model for llama_cpp.
+        """
         self.base_url = base_url
         self.model = model
+        self.model_path = model_path
+        # pick engine automatically if not provided
+        self.engine = engine or ('llama_cpp' if LLAMA_CPP_AVAILABLE else 'ollama')
         self.is_running = False
-        self._check_ollama_running()
+        self.llm_instance = None
+
+        # If using local llama.cpp and model_path provided, try to load it.
+        if self.engine == 'llama_cpp' and LLAMA_CPP_AVAILABLE:
+            if self.model_path:
+                try:
+                    self.load_local_model(self.model_path)
+                    self.is_running = True
+                except Exception as e:
+                    logger.warning(f"Failed to load local llama model: {e}")
+                    self.is_running = False
+        else:
+            # fallback to checking Ollama server
+            self._check_ollama_running()
     
     def _check_ollama_running(self):
         """Check if Ollama is running"""
@@ -173,12 +201,52 @@ What features are most important to this prediction?
 """
         return self.generate_response(prompt)
     
+    def load_local_model(self, model_path: str):
+        """Load a local llama.cpp model via llama-cpp-python bindings."""
+        if not LLAMA_CPP_AVAILABLE:
+            raise RuntimeError("llama-cpp-python bindings not available")
+        if not model_path or not isinstance(model_path, str):
+            raise ValueError("model_path must be a valid path to a ggml model file")
+        # instantiate Llama model
+        self.llm_instance = Llama(model_path=model_path)
+        self.model_path = model_path
+        logger.info(f"Loaded local llama model from: {model_path}")
+        return True
+
     def generate_response(self, prompt: str, max_tokens: int = 500) -> str:
-        """Generate response using Ollama LLM"""
+        """Generate a response using either local llama.cpp or Ollama HTTP API.
+
+        If engine == 'llama_cpp' and llama-cpp-python bindings are available and a model is loaded,
+        use local inference. Otherwise, fallback to Ollama server HTTP API (if running).
+        """
+        # Local llama.cpp path
+        if self.engine == 'llama_cpp' and LLAMA_CPP_AVAILABLE:
+            if not self.llm_instance:
+                logger.warning("Local llama engine selected but model not loaded")
+                return "Local LLM model not loaded"
+            try:
+                # llama-cpp-python returns dict with choices list
+                resp = self.llm_instance.create(
+                    prompt=prompt,
+                    max_tokens=max_tokens,
+                    temperature=0.7
+                )
+                # resp structure: {'id':..., 'object':..., 'choices': [{'text': '...'}], ...}
+                if isinstance(resp, dict):
+                    choices = resp.get('choices', [])
+                    if choices:
+                        return choices[0].get('text', '').strip()
+                # fallback
+                return str(resp)
+            except Exception as e:
+                logger.error(f"Error during local LLM generation: {e}")
+                return f"Error: {e}"
+
+        # Ollama HTTP fallback
         if not self.is_running:
             logger.warning("Ollama not running, using fallback")
             return "LLM service unavailable"
-        
+
         try:
             response = requests.post(
                 f"{self.base_url}/api/generate",
@@ -190,7 +258,7 @@ What features are most important to this prediction?
                 },
                 timeout=60
             )
-            
+
             if response.status_code == 200:
                 result = response.json()
                 return result.get('response', '').strip()

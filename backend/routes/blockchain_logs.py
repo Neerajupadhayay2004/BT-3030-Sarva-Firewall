@@ -1,12 +1,14 @@
 from flask import Blueprint, request, jsonify
 import logging
 from services.blockchain_service import BlockchainLogger
+from utils.security import token_required
 
 logger = logging.getLogger(__name__)
 blockchain_bp = Blueprint('blockchain', __name__)
 blockchain = BlockchainLogger()
 
 @blockchain_bp.route('/log/threat', methods=['POST'])
+@token_required
 def log_threat():
     """Log threat to blockchain"""
     try:
@@ -22,6 +24,7 @@ def log_threat():
         return jsonify({'error': str(e)}), 500
 
 @blockchain_bp.route('/verify/<threat_id>', methods=['GET'])
+@token_required
 def verify_threat(threat_id):
     """Verify threat log on blockchain"""
     try:
@@ -32,6 +35,7 @@ def verify_threat(threat_id):
         return jsonify({'error': str(e)}), 500
 
 @blockchain_bp.route('/history', methods=['GET'])
+@token_required
 def get_threat_history():
     """Get threat history from blockchain"""
     try:
@@ -43,6 +47,7 @@ def get_threat_history():
         return jsonify({'error': str(e)}), 500
 
 @blockchain_bp.route('/network/status', methods=['GET'])
+@token_required
 def network_status():
     """Get blockchain network status"""
     try:
@@ -58,6 +63,7 @@ def network_status():
         return jsonify({'error': str(e)}), 500
 
 @blockchain_bp.route('/transaction/<tx_hash>', methods=['GET'])
+@token_required
 def get_transaction(tx_hash):
     """Get transaction details"""
     try:

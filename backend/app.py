@@ -1,27 +1,103 @@
 import os
 import json
+import logging
+import re
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from flask_socketio import SocketIO, emit, join_room, leave_room
+from flask_socketio import SocketIO, emit
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
-import logging
 
 # Load environment variables
 load_dotenv()
 
+# Initialize Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+from utils.security import generate_token, verify_password, hash_password, token_required
+
 # Initialize Flask app
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('JWT_SECRET', 'sarva_secret_key')
-CORS(app, origins=os.getenv('CORS_ORIGINS', 'http://localhost:5173').split(','))
 
-# Add Security Headers Middleware
+# Security Configuration
+app.config['SECRET_KEY'] = os.getenv('JWT_SECRET', os.urandom(24).hex())
+ALLOWED_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:5173').split(',')
+
+# Initialize Limiter for Rate Limiting
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=["2000 per day", "500 per hour"],
+    storage_uri="memory://",
+    strategy="fixed-window",
+    on_breach=lambda limit: jsonify({'error': 'Rate limit exceeded', 'message': str(limit)}),
+)
+limiter.request_filter(lambda: request.path == "/api/health")
+
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    return jsonify({
+        "error": "ratelimit exceeded",
+        "message": str(e.description),
+        "status": 429
+    }), 429
+
+
+# Configure CORS
+CORS(app, origins=ALLOWED_ORIGINS)
+
+# Initialize SocketIO with restricted origins
+socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS)
+
+# Static credentials for demo (In production, use a secure database)
+DEMO_USER = {
+    "username": "admin",
+    "password_hash": hash_password("firewall2024")
+}
+
+# ================= AUTH ROUTES =================
+
+@app.route('/api/auth/login', methods=['POST'])
+@limiter.limit("5 per minute")
+def login():
+    """Secure login endpoint returning JWT"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Missing request body'}), 400
+            
+        username = data.get('username')
+        password = data.get('password')
+        
+        if username == DEMO_USER["username"] and verify_password(password, DEMO_USER["password_hash"]):
+            token = generate_token(username)
+            logger.info(f"Successful login for user: {username}")
+            return jsonify({
+                'status': 'success',
+                'token': token,
+                'user': {'username': username}
+            }), 200
+            
+        logger.warning(f"Failed login attempt for username: {username} from {request.remote_addr}")
+        return jsonify({'error': 'Invalid credentials'}), 401
+    except Exception as e:
+        logger.error(f"Login error: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+# ================= MIDDLEWARE =================
+
 @app.after_request
 def add_security_headers(response):
-    # Content Security Policy (CSP) - Strong XSS Protection
+    """Add production-grade security headers"""
     csp_policy = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "  # Needed for React dev mode
+        "script-src 'self'; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data: https:; "
@@ -31,242 +107,80 @@ def add_security_headers(response):
         "base-uri 'self'; "
         "form-action 'self';"
     )
+    # Relax CSP only in development mode for Vite/React HMR
+    if os.getenv('FLASK_ENV', 'development') == 'development':
+        csp_policy = csp_policy.replace("script-src 'self';", "script-src 'self' 'unsafe-inline' 'unsafe-eval';")
+        
     response.headers['Content-Security-Policy'] = csp_policy
-    
-    # Additional Security Headers
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['X-XSS-Protection'] = '1; mode=block'
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-    response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     
     return response
 
-# Initialize SocketIO for real-time updates
-socketio = SocketIO(app, cors_allowed_origins="*")
-
-# Register socketio with firewall tracker
-from services.firewall_tracker import firewall_tracker
-firewall_tracker.set_socketio(socketio)
-
-# Active Firewall Blocking Middleware
 @app.before_request
 def check_firewall():
+    """Active Firewall/WAF Middleware"""
     client_ip = request.remote_addr or '127.0.0.1'
     
-    # Skip attack detection for our logging endpoints
-    skip_paths = [
-        '/api/advanced/xss/log',
-        '/api/advanced/firewall/log-attack'
-    ]
-    if request.path in skip_paths:
-        return
-    
-    # 1. Check if already blacklisted
+    # 1. Check if blacklisted
+    from services.firewall_tracker import firewall_tracker
     if firewall_tracker.is_blocked(client_ip):
-        return jsonify({
-            'error': 'Access Denied',
-            'message': 'Your IP has been blacklisted by SARVA Firewall due to suspicious activity.',
-            'timestamp': datetime.utcnow().isoformat()
-        }), 403
+        return jsonify({'error': 'Access Denied', 'message': 'IP Blacklisted'}), 403
 
-    # 2. Real-time Attack Detection on the current request
-    path = request.path
-    args = str(request.args.to_dict())
-    body = str(request.get_data())
-    full_request = f"{path} {args} {body}"
-    headers = str(request.headers)
-    
-    is_attack = False
-    attack_type = ""
-    confidence = 0.95
-
-    # XSS Detection - more comprehensive
-    xss_patterns = [
-        r'<script[^>]*>.*?</script>',
-        r'javascript:',
-        r'on\w+\s*=',
-        r'<[^>]+on\w+\s*=',
-        r'&#x?\d+;',
-        r'%3Cscript',
-        r'%3C/img'
-    ]
-    import re
-    for pattern in xss_patterns:
-        if re.search(pattern, full_request, re.IGNORECASE):
-            is_attack = True
-            attack_type = "XSS Injection"
-            confidence = 0.98
-            break
-    
-    # SQL Injection Detection - more comprehensive
-    sqli_patterns = [
-        r'union\s+select',
-        r'order\s+by\s+\d+',
-        r'or\s+1\s*=\s*1',
-        r'and\s+1\s*=\s*1',
-        r'--\s*$',
-        r';\s*drop',
-        r';\s*delete',
-        r';\s*insert',
-        r';\s*update',
-        r'select\s+.*\s+from',
-        r'exec\s*\(',
-        r'execute\s*\(',
-        r'xp_cmdshell'
-    ]
-    if not is_attack:
-        for pattern in sqli_patterns:
-            if re.search(pattern, full_request, re.IGNORECASE):
-                is_attack = True
-                attack_type = "SQL Injection"
-                confidence = 0.97
-                break
-    
-    # Path Traversal Detection
-    path_traversal_patterns = [
-        r'\.\./',
-        r'\.\.\\',
-        r'%2e%2e%2f',
-        r'%2e%2e%5c',
-        r'/etc/passwd',
-        r'/windows/system32',
-        r'/boot.ini',
-        r'/proc/self/environ'
-    ]
-    if not is_attack:
-        for pattern in path_traversal_patterns:
-            if re.search(pattern, full_request, re.IGNORECASE):
-                is_attack = True
-                attack_type = "Path Traversal"
-                confidence = 0.96
-                break
-    
-    # SSRF Detection
-    ssrf_patterns = [
-        r'http://127\.0\.0\.1',
-        r'http://localhost',
-        r'http://0\.0\.0\.0',
-        r'http://\[::1\]',
-        r'http://169\.254\.',
-        r'file://',
-        r'gopher://',
-        r'tftp://'
-    ]
-    if not is_attack:
-        for pattern in ssrf_patterns:
-            if re.search(pattern, full_request, re.IGNORECASE):
-                is_attack = True
-                attack_type = "SSRF Attack"
-                confidence = 0.95
-                break
-    
-    # XXE Detection
-    xxe_patterns = [
-        r'<!ENTITY',
-        r'<!DOCTYPE',
-        r'xmlns:',
-        r'xlink:',
-        r'&[a-z0-9]+;'
-    ]
-    if not is_attack:
-        for pattern in xxe_patterns:
-            if re.search(pattern, full_request, re.IGNORECASE):
-                is_attack = True
-                attack_type = "XXE Injection"
-                confidence = 0.94
-                break
-    
-    # Command Injection Detection
-    cmd_injection_patterns = [
-        r';\s*(rm|cp|mv|cat|nc|bash|sh|cmd|powershell)',
-        r'\|\s*(rm|cp|mv|cat|nc|bash|sh|cmd|powershell)',
-        r'`.*?`',
-        r'\$\(.*?\)',
-        r'\$\{.*?\}',
-        r'&\s*(rm|cp|mv|cat|nc|bash|sh|cmd|powershell)',
-        r'exec\s*\(',
-        r'popen\s*\(',
-        r'system\s*\('
-    ]
-    if not is_attack:
-        for pattern in cmd_injection_patterns:
-            if re.search(pattern, full_request, re.IGNORECASE):
-                is_attack = True
-                attack_type = "Command Injection"
-                confidence = 0.99
-                break
-
-    if is_attack:
-        # Log the attack and broadcast it
-        firewall_tracker.log_packet(
-            packet_type=attack_type,
-            source_ip=client_ip,
-            payload=full_request[:150],
-            action="BLOCKED",
-            confidence=confidence
-        )
-        # Log to traffic analyzer (application layer)
-        traffic_analyzer.log_attack(
-            attack_data={
-                "attack_type": attack_type,
-                "source_ip": client_ip,
-                "target_ip": request.host,
-                "payload": full_request[:150],
-                "confidence": confidence,
-                "blocked": True,
-                "action_taken": "Blocked by WAF"
-            },
-            layer="application"
-        )
-        # Add automated response actions
-        execute_automated_response(client_ip, attack_type)
+    # 2. Inspect request for attacks
+    if request.path.startswith('/api/') and request.path not in ['/api/auth/login']:
+        # Concatenate parts for inspection
+        body = request.get_data(as_text=True) or ""
+        inspect_str = f"{request.path} {request.query_string.decode()} {body}".lower()
         
-        return jsonify({
-            'error': 'Attack Blocked',
-            'message': f'SARVA Firewall detected a {attack_type} and blocked your request.',
-            'timestamp': datetime.utcnow().isoformat()
-        }), 406 # Not Acceptable / Security Block
+        attack_patterns = {
+            "XSS Injection": [r'<script', r'javascript:', r'onerror=', r'onload='],
+            "SQL Injection": [r'union\s+select', r'or\s+1=1', r'--\s', r'drop\s+table'],
+            "Command Injection": [r';\s*rm', r'\|\s*bash', r'`id`', r'\$\(whoami\)'],
+            "Path Traversal": [r'\.\./', r'\.\.\\', r'/etc/passwd'],
+            "SSRF Attack": [r'http://169\.254\.', r'http://localhost', r'file://']
+        }
+        
+        for attack_type, patterns in attack_patterns.items():
+            for pattern in patterns:
+                if re.search(pattern, inspect_str):
+                    logger.warning(f"WAF: Blocked {attack_type} from {client_ip}")
+                    firewall_tracker.log_packet(attack_type, client_ip, inspect_str[:100], "BLOCKED", 0.99)
+                    # Log to traffic analyzer (persistent CSV)
+                    try:
+                        from services.traffic_analyzer import traffic_analyzer
+                        traffic_analyzer.log_attack({
+                            "attack_type": attack_type,
+                            "source_ip": client_ip,
+                            "target_ip": request.host or "127.0.0.1",
+                            "payload": inspect_str[:100],
+                            "confidence": 0.99,
+                            "blocked": True,
+                            "action_taken": "Blocked by WAF",
+                            "layer": "application"
+                        }, layer="application")
+                        traffic_analyzer.log_packet({
+                            "source_ip": client_ip,
+                            "dest_ip": request.host or "127.0.0.1",
+                            "source_port": request.environ.get('REMOTE_PORT', 0),
+                            "dest_port": request.environ.get('SERVER_PORT', 80),
+                            "protocol": "HTTP",
+                            "packet_size": len(inspect_str),
+                            "flags": "SYN/RST",
+                            "action": "BLOCKED"
+                        }, layer="application")
+                    except Exception as e:
+                        logger.error(f"Error logging WAF block to traffic analyzer: {e}")
+                    return jsonify({'error': 'Security Block', 'message': f'Detected {attack_type}'}), 403
 
-def execute_automated_response(ip, attack_type):
-    """Execute automated response actions for detected attacks"""
-    logger.info(f"Executing automated response for IP {ip} with attack type {attack_type}")
-    
-    # Automated responses based on attack type
-    responses = {
-        'Critical': [
-            'Block IP immediately',
-            'Notify security team',
-            'Save attack evidence'
-        ],
-        'High': [
-            'Block IP for 1 hour',
-            'Log detailed attack information',
-            'Monitor further traffic'
-        ],
-        'Medium': [
-            'Rate limit requests',
-            'Log attack details',
-            'Monitor IP'
-        ],
-        'Low': [
-            'Log attack details',
-            'Monitor IP'
-        ]
-    }
-    
-    severity = 'High' if attack_type in ['Command Injection', 'SQL Injection', 'XSS Injection'] else 'Medium'
-    logger.info(f"Selected severity: {severity}")
-    logger.info(f"Response actions: {', '.join(responses[severity])}")
+# ================= ROUTE REGISTRATION =================
 
-# Start Background Traffic Simulator (DISABLED)
-# import threading
-# traffic_thread = threading.Thread(target=firewall_tracker.generate_background_traffic, daemon=True)
-# traffic_thread.start()
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Import services
+from services.firewall_tracker import firewall_tracker
+firewall_tracker.set_socketio(socketio)
 
 # Import routes
 from routes.threat_detection import threat_bp
@@ -286,9 +200,6 @@ app.register_blueprint(llm_bp, url_prefix='/api/llm')
 app.register_blueprint(advanced_bp, url_prefix='/api/advanced')
 app.register_blueprint(lab_bp, url_prefix='/api/lab')
 
-# Integrate traffic analyzer
-from services.traffic_analyzer import traffic_analyzer
-
 # Register WebSocket handlers
 register_socketio_handlers(socketio)
 
@@ -300,39 +211,6 @@ def health_check():
         'timestamp': datetime.utcnow().isoformat(),
         'service': 'SARVA Firewall Backend'
     }), 200
-
-# Dashboard stats endpoint
-@app.route('/api/stats', methods=['GET'])
-def get_stats():
-    try:
-        from services.threat_analyzer import ThreatAnalyzer
-        analyzer = ThreatAnalyzer()
-        stats = analyzer.get_dashboard_stats()
-        return jsonify(stats), 200
-    except Exception as e:
-        logger.error(f"Error fetching stats: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-# Real-time threat feed endpoint
-@socketio.on('connect')
-def handle_connect():
-    logger.info(f'Client connected: {request.sid}')
-    emit('connection_response', {'data': 'Connected to SARVA Firewall'})
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    logger.info(f'Client disconnected: {request.sid}')
-
-@socketio.on('request_live_threats')
-def send_live_threats():
-    try:
-        from services.threat_analyzer import ThreatAnalyzer
-        analyzer = ThreatAnalyzer()
-        threats = analyzer.get_recent_threats(limit=10)
-        emit('live_threats_update', {'threats': threats})
-    except Exception as e:
-        logger.error(f"Error sending live threats: {str(e)}")
-        emit('error', {'message': str(e)})
 
 # Error handlers
 @app.errorhandler(404)

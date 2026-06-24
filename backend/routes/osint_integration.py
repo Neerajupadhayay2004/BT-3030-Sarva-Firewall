@@ -1,12 +1,14 @@
 from flask import Blueprint, request, jsonify
 import logging
 from services.osint_services import OSINTAggregator
+from utils.security import token_required
 
 logger = logging.getLogger(__name__)
 osint_bp = Blueprint('osint', __name__)
 osint = OSINTAggregator()
 
 @osint_bp.route('/investigate/ip', methods=['POST'])
+@token_required
 def investigate_ip():
     """Investigate IP address"""
     try:
@@ -23,6 +25,7 @@ def investigate_ip():
         return jsonify({'error': str(e)}), 500
 
 @osint_bp.route('/investigate/file', methods=['POST'])
+@token_required
 def investigate_file():
     """Investigate file hash"""
     try:
@@ -39,6 +42,7 @@ def investigate_file():
         return jsonify({'error': str(e)}), 500
 
 @osint_bp.route('/investigate/url', methods=['POST'])
+@token_required
 def investigate_url():
     """Investigate URL"""
     try:
@@ -55,6 +59,7 @@ def investigate_url():
         return jsonify({'error': str(e)}), 500
 
 @osint_bp.route('/shodan/search', methods=['POST'])
+@token_required
 def shodan_search():
     """Search Shodan database"""
     try:
@@ -71,6 +76,7 @@ def shodan_search():
         return jsonify({'error': str(e)}), 500
 
 @osint_bp.route('/abuseipdb/check', methods=['POST'])
+@token_required
 def abuseipdb_check():
     """Check AbuseIPDB reputation"""
     try:
@@ -87,6 +93,7 @@ def abuseipdb_check():
         return jsonify({'error': str(e)}), 500
 
 @osint_bp.route('/virustotal/scan', methods=['POST'])
+@token_required
 def virustotal_scan():
     """Scan with VirusTotal"""
     try:

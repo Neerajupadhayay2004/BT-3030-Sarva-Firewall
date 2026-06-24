@@ -6,7 +6,8 @@ Tracks all blocked attacks with detailed information
 import time
 import json
 import random
-from datetime import datetime
+import re
+from datetime import datetime, timezone
 from collections import deque
 from dataclasses import dataclass, asdict
 from typing import List, Dict
@@ -63,9 +64,25 @@ class FirewallAttack:
     ai_verdict: str = "Blocked by Ensemble Model"
     action_taken: str = "IP Quarantined & Connection Dropped"
 
+# Simple IP validation using regex to ensure correct IP is recorded
+_IPV4_REGEX = re.compile(r"^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$")
+_IPV6_REGEX = re.compile(r"^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$")
+
+def is_valid_ip(ip: str) -> bool:
+    if not ip or not isinstance(ip, str):
+        return False
+    if _IPV4_REGEX.match(ip):
+        # quick range check
+        parts = ip.split('.')
+        return all(0 <= int(p) <= 255 for p in parts)
+    if _IPV6_REGEX.match(ip):
+        return True
+    return False
+
 class FirewallTracker:
     def __init__(self, max_logs: int = 1000):
         self.traffic_log: deque = deque(maxlen=max_logs)
+        self.attack_log: deque = deque(maxlen=max_logs)
         self.blacklist: Dict[str, datetime] = {}
         self.stats = {
             "total_packets": 0,
@@ -86,12 +103,17 @@ class FirewallTracker:
         return ip in self.blacklist
 
     def log_packet(self, packet_type: str, source_ip: str, payload: str, action: str, confidence: float = 1.0):
-        """Log any network packet (Allowed or Blocked)"""
+        """Log any network packet (Allowed or Blocked). Ensures IP is validated and timestamped in UTC with timezone."""
         self.stats["total_packets"] += 1
 
+        # Validate source IP
+        recorded_ip = source_ip if is_valid_ip(source_ip) else "unknown"
         if action == "BLOCKED":
             self.stats["blocked_packets"] += 1
-            self.blacklist[source_ip] = datetime.utcnow()
+            # store ISO timestamp for blacklist entries
+            now_iso = datetime.now(timezone.utc).isoformat()
+            if recorded_ip != "unknown":
+                self.blacklist[recorded_ip] = now_iso
         else:
             self.stats["allowed_packets"] += 1
 
@@ -105,11 +127,14 @@ class FirewallTracker:
             payload_size=len(payload)
         )
 
+        # Use timezone-aware timestamp
+        timestamp_iso = datetime.now(timezone.utc).isoformat()
+
         log_entry = {
             "id": self.stats["total_packets"],
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": timestamp_iso,
             "type": packet_type,
-            "source_ip": source_ip,
+            "source_ip": recorded_ip,
             "payload": payload[:100],
             "action": action,
             "confidence": confidence,
@@ -119,6 +144,8 @@ class FirewallTracker:
         }
 
         self.traffic_log.appendleft(log_entry)
+        if action == "BLOCKED":
+            self.attack_log.appendleft(log_entry)
 
         if self.socketio:
             try:
@@ -127,6 +154,17 @@ class FirewallTracker:
                 pass
 
         return log_entry
+
+    def log_attack(self, attack_type: str, source_ip: str, payload: str, blocked: bool = True, confidence: float = 1.0):
+        """Helper to log simulated/detected attacks"""
+        action = "BLOCKED" if blocked else "ALLOWED"
+        return self.log_packet(
+            packet_type=attack_type,
+            source_ip=source_ip,
+            payload=payload,
+            action=action,
+            confidence=confidence
+        )
 
     def generate_background_traffic(self):
         """Simulate realistic background traffic"""
@@ -160,7 +198,7 @@ class FirewallTracker:
 
         
     def get_recent_attacks(self, limit: int = 20) -> List[Dict]:
-        return [asdict(a) for a in list(self.attack_log)[:limit]]
+        return list(self.attack_log)[:limit]
 
 # Global firewall tracker instance
 firewall_tracker = FirewallTracker()

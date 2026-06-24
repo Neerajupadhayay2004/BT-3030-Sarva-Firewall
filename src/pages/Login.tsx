@@ -6,22 +6,30 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
+import { authAPI } from "@/lib/api";
 
 const Login = () => {
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Static credentials
-    if (username === "admin" && password === "firewall2024") {
-      localStorage.setItem("isAuthenticated", "true");
-      toast.success("Login successful! Welcome to CyberShield Dashboard");
-      navigate("/dashboard");
-    } else {
-      toast.error("Invalid credentials. Try: admin / firewall2024");
+    try {
+      const response = await authAPI.login({ username, password });
+      
+      if (response.token) {
+        localStorage.setItem("token", response.token);
+        localStorage.setItem("isAuthenticated", "true");
+        toast.success("Login successful! Welcome to CyberShield Dashboard");
+        navigate("/dashboard");
+      } else {
+        toast.error(response.error || "Invalid credentials. Try: admin / firewall2024");
+      }
+    } catch (error) {
+      toast.error("Connection failed. Please ensure the backend is running.");
+      console.error("Login error:", error);
     }
   };
 

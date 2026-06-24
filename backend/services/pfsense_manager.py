@@ -11,13 +11,15 @@ class PfSenseManager:
     def __init__(self):
         self.base_url = None
         self.api_key = None
+        self.verify_ssl = True
         self.rules = []
         self.lock = threading.Lock()
         logger.info("PfSense Manager initialized")
         
-    def configure(self, base_url, api_key):
+    def configure(self, base_url, api_key, verify_ssl=True):
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
+        self.verify_ssl = verify_ssl
         
     def _make_api_call(self, endpoint, method="GET", data=None):
         if not self.base_url or not self.api_key:
@@ -34,13 +36,13 @@ class PfSenseManager:
             logger.info(f"Making pfSense API call: {method} {url}")
             
             if method == "GET":
-                response = requests.get(url, headers=headers, verify=False)
+                response = requests.get(url, headers=headers, verify=self.verify_ssl)
             elif method == "POST":
-                response = requests.post(url, headers=headers, json=data, verify=False)
+                response = requests.post(url, headers=headers, json=data, verify=self.verify_ssl)
             elif method == "PUT":
-                response = requests.put(url, headers=headers, json=data, verify=False)
+                response = requests.put(url, headers=headers, json=data, verify=self.verify_ssl)
             elif method == "DELETE":
-                response = requests.delete(url, headers=headers, verify=False)
+                response = requests.delete(url, headers=headers, verify=self.verify_ssl)
             
             if response.status_code in [200, 201]:
                 return True, response.json()

@@ -7,11 +7,14 @@ from services.pfsense_manager import pfsense_manager
 from services.scapy_packet_inspector import scapy_inspector
 from services.firewall_tracker import firewall_tracker
 
+from utils.security import token_required
+
 logger = logging.getLogger(__name__)
 lab_bp = Blueprint('lab', __name__)
 
 # ================ Traffic Analysis Routes ================
 @lab_bp.route('/traffic/history', methods=['GET'])
+@token_required
 def get_traffic_history():
     limit = int(request.args.get('limit', 100))
     traffic = traffic_analyzer.get_traffic_summary(limit)
@@ -21,6 +24,7 @@ def get_traffic_history():
     }), 200
 
 @lab_bp.route('/traffic/statistics', methods=['GET'])
+@token_required
 def get_traffic_stats():
     stats = traffic_analyzer.get_traffic_statistics()
     return jsonify({
@@ -29,6 +33,7 @@ def get_traffic_stats():
     }), 200
 
 @lab_bp.route('/attacks/history', methods=['GET'])
+@token_required
 def get_attack_history():
     limit = int(request.args.get('limit', 100))
     attacks = traffic_analyzer.get_attack_summary(limit)
@@ -38,6 +43,7 @@ def get_attack_history():
     }), 200
 
 @lab_bp.route('/attacks/statistics', methods=['GET'])
+@token_required
 def get_attack_stats():
     stats = traffic_analyzer.get_attack_statistics()
     return jsonify({
@@ -47,6 +53,7 @@ def get_attack_stats():
 
 # ================ Iptables Routes (Host Layer) ================
 @lab_bp.route('/iptables/rules', methods=['GET'])
+@token_required
 def get_iptables_rules():
     success, rules = iptables_manager.list_rules()
     return jsonify({
@@ -55,6 +62,7 @@ def get_iptables_rules():
     }), 200 if success else 500
 
 @lab_bp.route('/iptables/rules', methods=['POST'])
+@token_required
 def add_iptables_rule():
     try:
         data = request.get_json()
@@ -84,6 +92,7 @@ def add_iptables_rule():
         }), 500
 
 @lab_bp.route('/iptables/block', methods=['POST'])
+@token_required
 def block_ip_iptables():
     try:
         data = request.get_json()
@@ -104,6 +113,7 @@ def block_ip_iptables():
         }), 500
 
 @lab_bp.route('/iptables/reset', methods=['POST'])
+@token_required
 def reset_iptables():
     success = iptables_manager.reset_rules()
     return jsonify({
@@ -112,6 +122,7 @@ def reset_iptables():
 
 # ================ PfSense Routes (Network Layer) ================
 @lab_bp.route('/pfsense/configure', methods=['POST'])
+@token_required
 def configure_pfsense():
     try:
         data = request.get_json()
@@ -131,6 +142,7 @@ def configure_pfsense():
         }), 500
 
 @lab_bp.route('/pfsense/rules', methods=['GET'])
+@token_required
 def get_pfsense_rules():
     success, rules = pfsense_manager.list_rules()
     return jsonify({
@@ -139,6 +151,7 @@ def get_pfsense_rules():
     }), 200 if success else 500
 
 @lab_bp.route('/pfsense/rules', methods=['POST'])
+@token_required
 def add_pfsense_rule():
     try:
         data = request.get_json()
@@ -165,6 +178,7 @@ def add_pfsense_rule():
         }), 500
 
 @lab_bp.route('/pfsense/apply', methods=['POST'])
+@token_required
 def apply_pfsense_changes():
     success, data = pfsense_manager.apply_changes()
     return jsonify({
@@ -173,6 +187,7 @@ def apply_pfsense_changes():
     }), 200 if success else 500
 
 @lab_bp.route('/pfsense/status', methods=['GET'])
+@token_required
 def get_pfsense_status():
     success, data = pfsense_manager.get_status()
     return jsonify({
@@ -182,6 +197,7 @@ def get_pfsense_status():
 
 # ================ Scapy Packet Inspection Routes (Packet Layer) ================
 @lab_bp.route('/scapy/start', methods=['POST'])
+@token_required
 def start_scapy_sniffing():
     try:
         data = request.get_json()
@@ -202,6 +218,7 @@ def start_scapy_sniffing():
         }), 500
 
 @lab_bp.route('/scapy/stop', methods=['POST'])
+@token_required
 def stop_scapy_sniffing():
     scapy_inspector.stop_sniffing()
     return jsonify({
@@ -210,6 +227,7 @@ def stop_scapy_sniffing():
     }), 200
 
 @lab_bp.route('/scapy/packets', methods=['GET'])
+@token_required
 def get_scapy_packets():
     limit = int(request.args.get('limit', 100))
     packets = scapy_inspector.get_captured_packets(limit)
@@ -219,6 +237,7 @@ def get_scapy_packets():
     }), 200
 
 @lab_bp.route('/scapy/test', methods=['POST'])
+@token_required
 def test_scapy_packet():
     try:
         data = request.get_json()
@@ -244,6 +263,7 @@ def test_scapy_packet():
 
 # ================ Cross-Layer Integration ================
 @lab_bp.route('/firewall/log-attack', methods=['POST'])
+@token_required
 def log_attack_all_layers():
     try:
         data = request.get_json()

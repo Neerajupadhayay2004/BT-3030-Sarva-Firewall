@@ -14,7 +14,7 @@ import BlockedIPsTable from "@/components/dashboard/BlockedIPsTable";
 import TrendAnalysis from "@/components/dashboard/TrendAnalysis";
 import GeographicInsights from "@/components/dashboard/GeographicInsights";
 import TimelineChart from "@/components/dashboard/TimelineChart";
-import { threatAPI, blockchainAPI } from "@/lib/api";
+import { threatAPI, blockchainAPI, secureFetch } from "@/lib/api";
 import { sanitizeHtml, detectXss } from "@/lib/xssProtection";
 import { toast } from "sonner";
 
@@ -52,9 +52,8 @@ const Dashboard = () => {
           console.log(`XSS detected in query param: ${key}=${value}`);
           // Log to XSS tracker
           try {
-            await fetch('/api/advanced/xss/log', {
+            await secureFetch('/api/advanced/xss/log', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ 
                 payload: fullParam,
                 source: 'query-param'
@@ -65,9 +64,8 @@ const Dashboard = () => {
           }
           // Also log as firewall attack
           try {
-            await fetch('/api/advanced/firewall/log-attack', {
+            await secureFetch('/api/advanced/firewall/log-attack', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ 
                 attack_type: 'xss',
                 payload: fullParam,
@@ -87,12 +85,10 @@ const Dashboard = () => {
     setInvestigatingIp(ip);
     setOsintResults(null);
     try {
-      const res = await fetch('/api/osint/investigate/ip', {
+      const data = await secureFetch('/api/osint/investigate/ip', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ip })
       });
-      const data = await res.json();
       setOsintResults(data);
     } catch (e) {
       console.error('Failed to investigate IP:', e);
@@ -104,8 +100,7 @@ const Dashboard = () => {
   // Fetch firewall stats
   const fetchFirewallStats = async () => {
     try {
-      const res = await fetch('/api/advanced/firewall/stats');
-      const result = await res.json();
+      const result = await secureFetch('/api/advanced/firewall/stats');
       if (result.status === 'success') {
         setFirewallStats(result);
       }
@@ -117,8 +112,7 @@ const Dashboard = () => {
   // Fetch XSS stats
   const fetchXssStats = async () => {
     try {
-      const res = await fetch('/api/advanced/xss/stats');
-      const result = await res.json();
+      const result = await secureFetch('/api/advanced/xss/stats');
       if (result.status === 'success' && result.stats) {
         setXssStats(result.stats);
       }
@@ -129,9 +123,10 @@ const Dashboard = () => {
 
   // Initialize WebSocket connection
   useEffect(() => {
-    const isAuth = localStorage.getItem("isAuthenticated");
-    if (!isAuth) {
-      navigate("/");
+    const isAuth = localStorage.getItem("isAuthenticated") === "true";
+    const token = localStorage.getItem("token");
+    if (!isAuth || !token) {
+      navigate("/login");
       return;
     }
 
@@ -246,8 +241,10 @@ const Dashboard = () => {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem("token");
     localStorage.removeItem("isAuthenticated");
-    navigate("/");
+    toast.success("Logged out successfully");
+    navigate("/login");
   };
 
 

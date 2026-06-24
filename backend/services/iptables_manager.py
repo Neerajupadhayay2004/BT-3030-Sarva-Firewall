@@ -13,53 +13,70 @@ class IptablesManager:
         self.sudo_password = None
         logger.info("Iptables Manager initialized")
         
-    def _run_iptables_command(self, cmd):
+    def _run_iptables_command(self, cmd_args):
+        """Execute iptables using list-based arguments to prevent injection"""
         try:
+            # Use sudo if password is provided, but still avoid shell=True if possible
+            # If we must use a pipe for sudo -S, we use a more secure method
             if self.sudo_password:
-                full_cmd = f"echo {self.sudo_password} | sudo -S iptables {cmd}"
-                result = subprocess.run(full_cmd, shell=True, capture_output=True, text=True)
+                # Still use list for the command part
+                sudo_cmd = ["sudo", "-S", "iptables"] + cmd_args
+                process = subprocess.Popen(
+                    sudo_cmd, 
+                    stdin=subprocess.PIPE, 
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.PIPE, 
+                    text=True
+                )
+                stdout, stderr = process.communicate(input=f"{self.sudo_password}\n")
+                returncode = process.returncode
             else:
-                result = subprocess.run(["iptables", *cmd.split()], capture_output=True, text=True)
+                result = subprocess.run(["iptables"] + cmd_args, capture_output=True, text=True)
+                stdout, stderr = result.stdout, result.stderr
+                returncode = result.returncode
                 
-            if result.returncode == 0:
-                logger.info(f"Iptables command success: iptables {cmd}")
-                return True, result.stdout
+            if returncode == 0:
+                logger.info(f"Iptables command success: iptables {' '.join(cmd_args)}")
+                return True, stdout
             else:
-                logger.error(f"Iptables command failed: iptables {cmd}")
-                logger.error(f"Error: {result.stderr}")
-                return False, result.stderr
+                logger.error(f"Iptables command failed: iptables {' '.join(cmd_args)}")
+                logger.error(f"Error: {stderr}")
+                return False, stderr
         except Exception as e:
             logger.error(f"Iptables command error: {e}")
             return False, str(e)
             
     def add_rule(self, chain, protocol, source_port=None, dest_port=None, 
                  source_ip=None, dest_ip=None, action="ACCEPT", comment=""):
-        """Add an iptables rule"""
+        """Add an iptables rule with sanitized inputs"""
         with self.lock:
-            cmd_parts = [f"-A {chain}"]
+            # Sanitize comment - only allow safe characters
+            import re
+            safe_comment = re.sub(r'[^a-zA-Z0-9\s\-_]', '', comment)
+            
+            cmd_args = [f"-A", f"{chain}"]
             
             if protocol:
-                cmd_parts.append(f"-p {protocol}")
+                cmd_args.extend(["-p", protocol])
             
             if source_ip:
-                cmd_parts.append(f"-s {source_ip}")
+                cmd_args.extend(["-s", source_ip])
                 
             if dest_ip:
-                cmd_parts.append(f"-d {dest_ip}")
+                cmd_args.extend(["-d", dest_ip])
                 
             if source_port:
-                cmd_parts.append(f"--sport {source_port}")
+                cmd_args.extend(["--sport", str(source_port)])
                 
             if dest_port:
-                cmd_parts.append(f"--dport {dest_port}")
+                cmd_args.extend(["--dport", str(dest_port)])
                 
-            if comment:
-                cmd_parts.append(f'-m comment --comment "{comment}"')
+            if safe_comment:
+                cmd_args.extend(["-m", "comment", "--comment", safe_comment])
                 
-            cmd_parts.append(f"-j {action}")
+            cmd_args.extend(["-j", action])
             
-            cmd = " ".join(cmd_parts)
-            success, output = self._run_iptables_command(cmd)
+            success, output = self._run_iptables_command(cmd_args)
             
             if success:
                 rule = {
@@ -105,19 +122,19 @@ class IptablesManager:
         """Unblock an IP address"""
         with self.lock:
             logger.info(f"Unblocking IP: {ip}")
-            return self._run_iptables_command(f"-D INPUT -s {ip} -j DROP")
+            return self._run_iptables_command(["-D", "INPUT", "-s", ip, "-j", "DROP"])
             
     def list_rules(self):
         """List all active iptables rules"""
-        success, output = self._run_iptables_command("-L -n -v")
+        success, output = self._run_iptables_command(["-L", "-n", "-v"])
         return success, output
         
     def reset_rules(self):
         """Reset all iptables rules"""
         with self.lock:
             logger.info("Resetting iptables rules")
-            self._run_iptables_command("-F")
-            self._run_iptables_command("-X")
+            self._run_iptables_command(["-F"])
+            self._run_iptables_command(["-X"])
             self.rules = []
             return True
             

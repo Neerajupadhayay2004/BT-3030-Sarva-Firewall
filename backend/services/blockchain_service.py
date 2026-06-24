@@ -43,6 +43,12 @@ class BlockchainAuditService:
         self.threat_ledger = []
         self.block_chain = []
         self.pending_transactions = []
+        class MockW3:
+            def is_connected(self):
+                return True
+        self.w3 = MockW3()
+        self.contract_address = "0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7"
+        self.provider_url = "https://polygon-amoy.infura.io/v3/mock"
         logger.info("BlockchainAuditService initialized")
     
     def create_block(self, transactions: list, previous_hash: str = "0") -> Dict:
@@ -132,6 +138,37 @@ class BlockchainAuditService:
         except Exception as e:
             logger.error(f"Error creating block: {str(e)}")
     
+    def verify_threat_log(self, threat_id: str) -> Dict[str, Any]:
+        """Verify threat log on blockchain by searching for the transaction ID"""
+        for block in self.block_chain:
+            for tx in block['transactions']:
+                if tx['id'] == threat_id:
+                    return {
+                        'verified': True,
+                        'block_index': block['index'],
+                        'hash': block['hash'],
+                        'timestamp': block['timestamp'],
+                        'threat': tx['data']
+                    }
+        # Also check pending
+        for tx in self.pending_transactions:
+            if tx['id'] == threat_id:
+                return {
+                    'verified': True,
+                    'block_index': -1,
+                    'hash': 'Pending',
+                    'timestamp': tx['timestamp'],
+                    'threat': tx['data']
+                }
+        return {
+            'verified': False,
+            'message': 'Threat log not found in ledger or blockchain'
+        }
+
+    def get_threat_history(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get history of logged threats"""
+        return self.get_audit_trail()[:limit]
+
     def get_audit_trail(self, filters: Optional[Dict] = None) -> list:
         """Get audit trail with optional filters"""
         try:

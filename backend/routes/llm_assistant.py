@@ -1,12 +1,14 @@
 from flask import Blueprint, request, jsonify
 import logging
 from services.llm_service import LocalLLMAssistant
+from utils.security import token_required
 
 logger = logging.getLogger(__name__)
 llm_bp = Blueprint('llm', __name__)
 llm = LocalLLMAssistant()
 
 @llm_bp.route('/analyze', methods=['POST'])
+@token_required
 def analyze_threat_with_llm():
     """Analyze threat using LLM"""
     try:
@@ -25,6 +27,7 @@ def analyze_threat_with_llm():
         return jsonify({'error': str(e)}), 500
 
 @llm_bp.route('/report', methods=['POST'])
+@token_required
 def generate_security_report():
     """Generate security report using LLM"""
     try:
@@ -38,6 +41,7 @@ def generate_security_report():
         return jsonify({'error': str(e)}), 500
 
 @llm_bp.route('/chat', methods=['POST'])
+@token_required
 def chat_with_ai():
     """Chat with AI security assistant"""
     try:
@@ -59,6 +63,7 @@ def chat_with_ai():
         return jsonify({'error': str(e)}), 500
 
 @llm_bp.route('/status', methods=['GET'])
+@token_required
 def get_llm_status():
     """Get LLM service status"""
     try:
@@ -73,6 +78,7 @@ def get_llm_status():
         return jsonify({'error': str(e)}), 500
 
 @llm_bp.route('/recommendations', methods=['POST'])
+@token_required
 def get_recommendations():
     """Get AI recommendations for threat mitigation"""
     try:
