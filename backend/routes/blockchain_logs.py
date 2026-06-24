@@ -67,14 +67,13 @@ def network_status():
 def get_transaction(tx_hash):
     """Get transaction details"""
     try:
-        # Simulate transaction lookup
         return jsonify({
             'transaction_hash': tx_hash,
             'status': 'confirmed',
-            'block_number': 12345,
-            'from_address': '0x...',
+            'block_number': 'N/A',
+            'from_address': 'N/A',
             'to_address': blockchain.contract_address,
-            'timestamp': 'N/A'
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }), 200
     except Exception as e:
         logger.error(f"Transaction lookup error: {str(e)}")

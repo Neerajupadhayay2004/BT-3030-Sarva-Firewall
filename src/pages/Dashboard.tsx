@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Shield, Activity, AlertTriangle, CheckCircle, TrendingUp, Database, Menu, LogOut, RefreshCw, XCircle, Wifi, Zap, Globe } from "lucide-react";
+import { Shield, Activity, AlertTriangle, CheckCircle, Database, RefreshCw, Wifi, Zap, Globe } from "lucide-react";
 import { io } from "socket.io-client";
 
 import { Button } from "@/components/ui/button";
@@ -21,27 +21,28 @@ import { toast } from "sonner";
 const Dashboard = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [data, setData] = useState<any>(null);
-  const [apiData, setApiData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [xssStats, setXssStats] = useState<any>({ total_attempts: 0, blocked_count: 0, recent_attacks: [] });
+  
+  // State for all dashboard data
+  const [stats, setStats] = useState<any>(null);
+  const [recentAttacks, setRecentAttacks] = useState<any[]>([]);
+  const [timeline, setTimeline] = useState<any[]>([]);
+  const [topIPs, setTopIPs] = useState<any[]>([]);
   const [firewallStats, setFirewallStats] = useState<any>({ 
-    stats: { total_packets: 0, blocked_packets: 0, allowed_packets: 0, active_rules: 12 },
+    stats: { total_packets: 0, blocked_packets: 0, allowed_packets: 0, active_rules: 0 },
     blacklist_count: 0,
     recent_traffic: [] 
   });
+  const [xssStats, setXssStats] = useState<any>({ total_attempts: 0, blocked_count: 0, recent_attacks: [] });
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [socketConnected, setSocketConnected] = useState(false);
   const socketRef = useRef<any>(null);
-
-  const safeData = data ?? { attack_categories: {}, worked: {} };
   const [investigatingIp, setInvestigatingIp] = useState<string | null>(null);
   const [osintResults, setOsintResults] = useState<any>(null);
   
   // Safely read and sanitize query parameters, detect XSS
   const rawMsg = searchParams.get('msg');
   const sanitizedMsg = rawMsg ? sanitizeHtml(rawMsg) : null;
-  const showDataWarning = !data && !loading;
 
   // Check all query params for XSS and log if detected
   useEffect(() => {
@@ -61,19 +62,6 @@ const Dashboard = () => {
             });
           } catch (e) {
             console.error('Failed to log XSS attack:', e);
-          }
-          // Also log as firewall attack
-          try {
-            await secureFetch('/api/advanced/firewall/log-attack', {
-              method: 'POST',
-              body: JSON.stringify({ 
-                attack_type: 'xss',
-                payload: fullParam,
-                confidence: 0.98
-              })
-            });
-          } catch (e) {
-            console.error('Failed to log firewall attack:', e);
           }
         }
       }
@@ -97,27 +85,44 @@ const Dashboard = () => {
     }
   };
 
-  // Fetch firewall stats
-  const fetchFirewallStats = async () => {
+  // Fetch all backend data
+  const fetchBackendData = async () => {
     try {
-      const result = await secureFetch('/api/advanced/firewall/stats');
-      if (result.status === 'success') {
-        setFirewallStats(result);
-      }
-    } catch (e) {
-      console.error("Failed to fetch firewall stats:", e);
-    }
-  };
+      setLoading(true);
+      
+      // Fetch from all our new endpoints
+      const [dashboardStats, attacks, timelineData, ips, xssStatsData, firewallData] = await Promise.all([
+        secureFetch('/dashboard/stats'),
+        secureFetch('/dashboard/attacks'),
+        secureFetch('/dashboard/timeline'),
+        secureFetch('/dashboard/top-ips'),
+        secureFetch('/advanced/xss/stats'),
+        secureFetch('/advanced/firewall/stats')
+      ]);
 
-  // Fetch XSS stats
-  const fetchXssStats = async () => {
-    try {
-      const result = await secureFetch('/api/advanced/xss/stats');
-      if (result.status === 'success' && result.stats) {
-        setXssStats(result.stats);
+      if (dashboardStats.status === 'success') {
+        setStats(dashboardStats.data);
       }
-    } catch (e) {
-      console.error("Failed to fetch XSS stats:", e);
+      if (attacks.status === 'success') {
+        setRecentAttacks(attacks.data);
+      }
+      if (timelineData.status === 'success') {
+        setTimeline(timelineData.data);
+      }
+      if (ips.status === 'success') {
+        setTopIPs(ips.data);
+      }
+      if (xssStatsData.status === 'success') {
+        setXssStats(xssStatsData.data);
+      }
+      if (firewallData && !firewallData.error) {
+        setFirewallStats(firewallData);
+      }
+    } catch (error) {
+      console.error("Error fetching backend data:", error);
+      toast.error("Failed to fetch dashboard data");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -130,28 +135,20 @@ const Dashboard = () => {
       return;
     }
 
-    // Load local database.json
-    fetch("/database.json")
-      .then((res) => res.json())
-      .then((jsonData) => setData(jsonData))
-      .catch((err) => console.error("Error loading database:", err));
-
-    // Fetch data from backend API
+    // Load initial data
     fetchBackendData();
     
-    // Initial fetch of stats
-    fetchFirewallStats();
-    fetchXssStats();
-    
-    // Poll stats every 5 seconds (as backup to WebSocket)
+    // Poll stats every 5 seconds
     const interval = setInterval(() => {
-      fetchFirewallStats();
-      fetchXssStats();
+      fetchBackendData();
     }, 5000);
     
     // Setup WebSocket for real-time updates
     try {
-      const socket = io('http://localhost:5000');
+      const socket = io(window.location.origin, { 
+        path: '/socket.io',
+        auth: token ? { token } : undefined
+      });
       socketRef.current = socket;
       
       socket.on('connect', () => {
@@ -188,14 +185,13 @@ const Dashboard = () => {
         }));
       });
 
-      socket.on('firewall_attack', (data: any) => {
-        // Handle direct attack logs if still used
-        fetchFirewallStats();
+      socket.on('attack_detected', (attack: any) => {
+        // Add to recent attacks list
+        setRecentAttacks((prev: any[]) => [attack, ...prev.slice(0, 49)]);
+        // Refresh stats
+        fetchBackendData();
       });
 
-      socket.on('connection_response', (data: any) => {
-        console.log('Server connection response:', data);
-      });
     } catch (e) {
       console.error('Failed to setup WebSocket:', e);
     }
@@ -207,32 +203,6 @@ const Dashboard = () => {
       }
     };
   }, [navigate]);
-
-  const fetchBackendData = async () => {
-    try {
-      setLoading(true);
-      
-      // Fetch threat statistics
-      const stats = await threatAPI.getStats();
-      const recentThreats = await threatAPI.getRecentThreats(10);
-      const timeline = await threatAPI.getThreatTimeline(24);
-      const blockchainHistory = await blockchainAPI.getThreatHistory(50);
-
-      setApiData({
-        stats,
-        recentThreats,
-        timeline,
-        blockchainHistory
-      });
-
-      toast.success("Dashboard data updated successfully");
-    } catch (error) {
-      console.error("Error fetching backend data:", error);
-      toast.error("Failed to fetch backend data. Using local data.");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -247,43 +217,31 @@ const Dashboard = () => {
     navigate("/login");
   };
 
-
-
-  if (!data && loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <Activity className="w-16 h-16 text-primary animate-pulse mx-auto" />
-          <p className="text-muted-foreground">Loading firewall data...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Use API data if available, otherwise fall back to local data
-  const displayData = apiData?.stats || {
-    total_threats_detected: 0,
-    threats_blocked: 0,
-    critical_threats: 0,
-    phishing_emails: 0,
-    malware_detected: 0,
-    network_attacks: 0,
-    system_uptime: "99.8%",
-    last_update: new Date().toISOString()
+  // Transform data for components expecting old format
+  const transformedData = {
+    attack_categories: recentAttacks.reduce((acc: any, attack) => {
+      if (!acc[attack.attack_type]) acc[attack.attack_type] = {};
+      acc[attack.attack_type][attack.id || Date.now()] = {
+        Attacker_Ip: attack.source_ip,
+        Attack_Time: attack.timestamp,
+      };
+      return acc;
+    }, {}),
+    worked: topIPs.reduce((acc: any, ipData) => {
+      const uniqueId = Date.now() + Math.random();
+      acc[uniqueId] = {
+        Blocked_Ip: ipData.ip,
+        Reason_For_Block: "Blocked by WAF",
+        Block_At_Time: new Date().toISOString()
+      };
+      return acc;
+    }, {})
   };
 
-  // Calculate statistics
-  const totalAttacks = displayData.total_threats_detected ||
-    (Object.values(safeData.attack_categories) as any[]).reduce((sum: number, category: any) => {
-      return sum + Object.keys(category).length;
-    }, 0);
-
-  const blockedIPs = displayData.threats_blocked || Object.keys(safeData.worked).length;
-
-  const attackTypes = displayData.critical_threats ||
-    Object.entries(safeData.attack_categories)
-      .filter(([_, attacks]: any) => Object.keys(attacks).length > 0)
-      .length;
+  const transformedTimeline = timeline.map(item => ({
+    date: new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    attacks: item.count
+  }));
 
   return (
     <div className="min-h-screen p-4 md:p-8">
@@ -293,7 +251,7 @@ const Dashboard = () => {
           <div className="flex items-center gap-3 mb-2">
             <Shield className="w-10 h-10 text-primary cyber-glow" />
             <h1 className="text-4xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-              SARVA Firewall Dashboard
+              SARVA Enterprise WAF
             </h1>
           </div>
           <p className="text-muted-foreground">AI-powered real-time threat monitoring and analytics</p>
@@ -320,12 +278,8 @@ const Dashboard = () => {
             <Activity className="w-4 h-4 md:mr-2" />
             <span className="hidden md:inline">Simulator</span>
           </Button>
-          <Button variant="outline" onClick={() => navigate("/learning")} className="border-primary/30 h-9 px-3 md:px-4">
-            <TrendingUp className="w-4 h-4 md:mr-2" />
-            <span className="hidden md:inline">Learning</span>
-          </Button>
           <Button variant="destructive" onClick={handleLogout} className="h-9 px-3 md:px-4">
-            <LogOut className="w-4 h-4 md:mr-2" />
+            <RefreshCw className="w-4 h-4 md:mr-2" />
             <span className="hidden md:inline">Logout</span>
           </Button>
         </div>
@@ -345,16 +299,10 @@ const Dashboard = () => {
         </div>
       )}
 
-      {showDataWarning && (
-        <div className="mb-6 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-100">
-          Local dashboard data could not be loaded yet. The page is using empty fallback data until the source becomes available.
-        </div>
-      )}
-
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
         <StatsCard
-          title="Total Packets Monitored"
+          title="Total Requests Monitored"
           value={firewallStats.stats.total_packets.toString()}
           icon={Activity}
           trend="Live traffic feed"
@@ -372,7 +320,7 @@ const Dashboard = () => {
         <StatsCard
           title="Active Blacklist"
           value={firewallStats.blacklist_count.toString()}
-          icon={XCircle}
+          icon={RefreshCw}
           trend="IPs quarantined"
           color="destructive"
         />
@@ -392,8 +340,6 @@ const Dashboard = () => {
         />
       </div>
 
-
-
       {/* Data Visualization Tabs */}
       <Tabs defaultValue="logs" className="mb-8">
         <TabsList className="flex flex-wrap w-full lg:w-auto h-auto bg-transparent gap-2 mb-4">
@@ -401,7 +347,7 @@ const Dashboard = () => {
           <TabsTrigger value="overview" className="flex-1 lg:flex-none py-2 px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground border border-primary/20">Overview</TabsTrigger>
           <TabsTrigger value="trends" className="flex-1 lg:flex-none py-2 px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground border border-primary/20">Trends</TabsTrigger>
           <TabsTrigger value="geographic" className="flex-1 lg:flex-none py-2 px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground border border-primary/20">Geographic</TabsTrigger>
-          <TabsTrigger value="timeline" className="flex-1 lg:flex-none py-2 px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground border border-primary/20">Timeline</TabsTrigger>
+          <TabsTrigger value="timeline" className="flex-1 lg:flex-none py-2 px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground border border-primary/20">24-Hour Attack Trends</TabsTrigger>
         </TabsList>
         
         <TabsContent value="logs" className="mt-6">
@@ -416,7 +362,7 @@ const Dashboard = () => {
               {firewallStats.recent_traffic && firewallStats.recent_traffic.length > 0 ? (
                 <div className="space-y-4">
                   {firewallStats.recent_traffic.map((packet: any, idx: number) => (
-                    <div key={packet.id || idx} className={`border p-5 rounded-xl animate-in fade-in slide-in-from-top-4 duration-500 ${
+                    <div key={packet.id || `${packet.timestamp}-${idx}`} className={`border p-5 rounded-xl animate-in fade-in slide-in-from-top-4 duration-500 ${
                       packet.action === 'BLOCKED' ? 'border-red-500/30 bg-red-500/5' : 'border-green-500/10 bg-green-500/5'
                     }`}>
                       <div className="flex justify-between items-start mb-4 flex-wrap gap-4">
@@ -472,9 +418,9 @@ const Dashboard = () => {
                           <p className="text-sm font-semibold text-foreground mb-1">{packet.ai_verdict}</p>
                           <div className="flex items-center gap-2">
                             <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                              <div className={`h-full ${packet.action === 'BLOCKED' ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${packet.confidence * 100}%` }}></div>
+                              <div className={`h-full ${packet.action === 'BLOCKED' ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${(packet.confidence || 0.9) * 100}%` }}></div>
                             </div>
-                            <span className="text-[10px] font-mono">{(packet.confidence * 100).toFixed(1)}% confidence</span>
+                            <span className="text-[10px] font-mono">{((packet.confidence || 0.9) * 100).toFixed(1)}% confidence</span>
                           </div>
                         </div>
                         <div className={`p-3 rounded-lg border ${
@@ -625,52 +571,41 @@ const Dashboard = () => {
 
         <TabsContent value="overview" className="space-y-6 mt-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <AttackChart data={safeData} />
-            <AttackDistribution data={safeData} />
+            <AttackChart data={transformedData} />
+            <AttackDistribution data={transformedData} />
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <RecentAttacks data={safeData} />
-            <BlockedIPsTable data={safeData} />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="threats" className="mt-6">
-          <div className="cyber-border rounded-lg p-6 bg-card/50 backdrop-blur-sm">
-            <h3 className="text-lg font-bold mb-4">Recent API-Detected Threats</h3>
-            {apiData?.recentThreats && apiData.recentThreats.length > 0 ? (
-              <div className="space-y-4">
-                {apiData.recentThreats.slice(0, 5).map((threat: any, idx: number) => (
-                  <div key={idx} className="border border-primary/20 rounded p-4">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="font-bold capitalize">{threat.type}</p>
-                        <p className="text-sm text-muted-foreground">{threat.status}</p>
-                      </div>
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                        threat.status === 'detected' ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'
-                      }`}>
-                        {threat.action?.toUpperCase()}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-muted-foreground text-center py-8">No threats detected via API</p>
-            )}
+            <RecentAttacks data={transformedData} />
+            <BlockedIPsTable data={transformedData} />
           </div>
         </TabsContent>
 
         <TabsContent value="trends" className="mt-6">
-          <TrendAnalysis data={safeData} />
+          <TrendAnalysis data={transformedData} />
         </TabsContent>
 
         <TabsContent value="geographic" className="mt-6">
-          <GeographicInsights data={safeData} />
+          <GeographicInsights data={transformedData} />
         </TabsContent>
 
         <TabsContent value="timeline" className="mt-6">
-          <TimelineChart data={safeData} />
+          <div className="cyber-border bg-card/50 backdrop-blur-sm rounded-lg p-6">
+            <h3 className="text-lg font-bold mb-4">24-Hour Attack Trends</h3>
+            <div className="h-[300px]">
+              <TimelineChart data={{
+                attack_categories: timeline.reduce((acc, item) => {
+                  // Mock attack categories for timeline
+                  const type = 'SQL Injection';
+                  if (!acc[type]) acc[type] = {};
+                  acc[type][item.time] = {
+                    Attacker_Ip: '192.168.1.1',
+                    Attack_Time: item.time
+                  };
+                  return acc;
+                }, {})
+              }} />
+            </div>
+          </div>
         </TabsContent>
       </Tabs>
 
@@ -683,7 +618,7 @@ const Dashboard = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-muted/50 rounded-lg p-4">
             <p className="text-sm text-muted-foreground mb-1">Total Records</p>
-            <p className="text-2xl font-bold text-primary">{totalAttacks}</p>
+            <p className="text-2xl font-bold text-primary">{recentAttacks.length}</p>
           </div>
           <div className="bg-muted/50 rounded-lg p-4">
             <p className="text-sm text-muted-foreground mb-1">Chain Status</p>

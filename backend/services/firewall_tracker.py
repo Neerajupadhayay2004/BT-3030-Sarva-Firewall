@@ -84,17 +84,23 @@ class FirewallTracker:
         self.traffic_log: deque = deque(maxlen=max_logs)
         self.attack_log: deque = deque(maxlen=max_logs)
         self.blacklist: Dict[str, datetime] = {}
+        self._active_rules = 0
         self.stats = {
             "total_packets": 0,
             "blocked_packets": 0,
             "allowed_packets": 0,
-            "active_rules": 12,
-            "uptime": datetime.utcnow().isoformat()
+            "active_rules": 0,
+            "uptime": datetime.now(timezone.utc).isoformat()
         }
         self.socketio = None
 
     def set_socketio(self, socketio):
         self.socketio = socketio
+
+    def update_active_rules(self, count: int):
+        """Update the active firewall rule count dynamically."""
+        self._active_rules = max(0, count)
+        self.stats["active_rules"] = self._active_rules
 
     def is_blocked(self, ip: str) -> bool:
         """Check if an IP is in the active blacklist (never block localhost)"""
@@ -167,29 +173,18 @@ class FirewallTracker:
         )
 
     def generate_background_traffic(self):
-        """Simulate realistic background traffic"""
-        safe_ips = ["192.168.1.10", "10.0.0.5", "172.16.0.22", "8.8.8.8"]
-        while True:
-            time.sleep(random.uniform(1.0, 5.0))
-            is_malicious = random.random() < 0.1 # 10% chance of random background 'attack'
+        """Disabled: No random traffic"""
+        pass
 
-            if is_malicious:
-                self.log_packet(
-                    packet_type=random.choice(["port-scan", "brute-force", "anomaly"]),
-                    source_ip=f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
-                    payload="Suspicious byte sequence detected in header",
-                    action="BLOCKED",
-                    confidence=random.uniform(0.7, 0.9)
-                )
-            else:
-                self.log_packet(
-                    packet_type="safe-traffic",
-                    source_ip=random.choice(safe_ips),
-                    payload="GET /index.html HTTP/1.1",
-                    action="ALLOWED"
-                )
+    def update_active_rules(self, count: int):
+        """Update the active firewall rule count dynamically."""
+        self._active_rules = max(0, count)
+        self.stats["active_rules"] = self._active_rules
 
     def get_stats(self) -> Dict:
+        # active_rules reflects: base policy rules + one per blocked IP
+        if self.stats["active_rules"] == 0:
+            self.stats["active_rules"] = max(5, len(self.blacklist))
         return {
             "stats": self.stats,
             "blacklist_count": len(self.blacklist),

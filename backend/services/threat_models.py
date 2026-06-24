@@ -1,21 +1,30 @@
-import numpy as np
-import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import StandardScaler
 import re
 import pickle
 import os
 from datetime import datetime
 import logging
 
+# Optional heavy ML imports — provide graceful fallback when not installed in minimal environment
+try:
+    import numpy as np
+    import pandas as pd
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.preprocessing import StandardScaler
+    HAS_ML_STACK = True
+except Exception:
+    np = None
+    pd = None
+    RandomForestClassifier = None
+    StandardScaler = None
+    HAS_ML_STACK = False
+    logging.getLogger(__name__).warning('ML stack not available; running lightweight fallbacks for threat models')
+
 logger = logging.getLogger(__name__)
 
 class PhishingDetector:
-    """AI-powered phishing detection using ensemble methods"""
+    """AI-powered phishing detection using ensemble methods (falls back to heuristics when ML stack unavailable)"""
     
     def __init__(self):
-        self.model = RandomForestClassifier(n_estimators=100, max_depth=15)
-        self.scaler = StandardScaler()
         self.model_path = os.path.join(os.path.dirname(__file__), 'phishing_model.pkl')
         self.phishing_keywords = [
             'verify', 'confirm', 'urgent', 'action required', 'update',
@@ -25,7 +34,18 @@ class PhishingDetector:
         self.suspicious_domains = [
             'bit.ly', 'tinyurl', 'short.link', 'ow.ly', 'goo.gl'
         ]
-        
+        # initialize lightweight placeholders if ML stack not available
+        if HAS_ML_STACK and RandomForestClassifier is not None:
+            try:
+                self.model = RandomForestClassifier(n_estimators=100, max_depth=15)
+                self.scaler = StandardScaler()
+            except Exception:
+                self.model = None
+                self.scaler = None
+        else:
+            self.model = None
+            self.scaler = None
+
     def extract_features(self, email_content):
         """Extract features from email content"""
         features = {
@@ -43,23 +63,32 @@ class PhishingDetector:
     def predict(self, email_content, threshold=0.6):
         """Predict if email is phishing"""
         features = self.extract_features(email_content)
-        feature_vector = np.array([[
-            features['keyword_count'],
-            features['url_count'],
-            features['suspicious_domain_count'],
-            features['has_attachment'],
-            features['urgency_score'],
-            features['credential_request']
-        ]])
+        # Create a simple numeric vector only if numpy is available, else fallback to heuristic
+        if np is not None:
+            feature_vector = np.array([[
+                features['keyword_count'],
+                features['url_count'],
+                features['suspicious_domain_count'],
+                features['has_attachment'],
+                features['urgency_score'],
+                features['credential_request']
+            ]])
+        else:
+            feature_vector = None
         
         try:
-            if os.path.exists(self.model_path):
+            # If a pre-trained model exists and sklearn is available, use it
+            if self.model and os.path.exists(self.model_path) and feature_vector is not None:
                 with open(self.model_path, 'rb') as f:
                     self.model = pickle.load(f)
-                probability = self.model.predict_proba(feature_vector)[0][1]
+                if hasattr(self.model, 'predict_proba'):
+                    probability = self.model.predict_proba(feature_vector)[0][1]
+                else:
+                    probability = sum(features.values()) / len(features)
             else:
+                # lightweight heuristic probability: normalized feature sum
                 probability = sum(features.values()) / len(features)
-        except:
+        except Exception:
             probability = sum(features.values()) / len(features)
         
         risk_level = 'high' if probability >= 0.7 else 'medium' if probability >= 0.4 else 'low'
@@ -85,10 +114,17 @@ class MalwareDetector:
             'privilege_escalation': r'AdjustTokenPrivileges|EnablePrivilege',
             'evasion': r'GetTickCount|Sleep|SetWindowsHookEx|VirtualProtect'
         }
-        self.model = RandomForestClassifier(n_estimators=100, max_depth=15)
+        # If ML stack is unavailable, keep model as None and rely on pattern counts
+        if HAS_ML_STACK and RandomForestClassifier is not None:
+            try:
+                self.model = RandomForestClassifier(n_estimators=100, max_depth=15)
+            except Exception:
+                self.model = None
+        else:
+            self.model = None
     
     def analyze_behavior(self, behavior_log):
-        """Analyze binary/process behavior"""
+        """Analyze binary/process behavior (heuristic if ML stack missing)"""
         detected_patterns = {}
         for pattern_name, pattern in self.suspicious_patterns.items():
             matches = len(re.findall(pattern, behavior_log, re.IGNORECASE))

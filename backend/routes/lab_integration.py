@@ -12,6 +12,21 @@ from utils.security import token_required
 logger = logging.getLogger(__name__)
 lab_bp = Blueprint('lab', __name__)
 
+
+def _get_client_ip():
+    """Extract client IP from X-Forwarded-For or remote_addr."""
+    xff = request.headers.get('X-Forwarded-For', '')
+    if xff:
+        forwarded_ips = [ip.strip() for ip in xff.split(',') if ip.strip()]
+        for ip in forwarded_ips:
+            if ip and not ip.startswith(('10.', '172.16.', '192.168.', '127.')):
+                return ip
+        for ip in forwarded_ips:
+            if ip and ip != '127.0.0.1':
+                return ip
+        return forwarded_ips[0] if forwarded_ips else (request.remote_addr or '127.0.0.1')
+    return request.remote_addr or '127.0.0.1'
+
 # ================ Traffic Analysis Routes ================
 @lab_bp.route('/traffic/history', methods=['GET'])
 @token_required
@@ -240,9 +255,9 @@ def get_scapy_packets():
 @token_required
 def test_scapy_packet():
     try:
-        data = request.get_json()
-        src_ip = data.get("source_ip", "192.168.1.100")
-        dst_ip = data.get("dest_ip", "192.168.1.1")
+        data = request.get_json() or {}
+        src_ip = data.get("source_ip") or _get_client_ip()
+        dst_ip = data.get("dest_ip") or request.host or '127.0.0.1'
         src_port = data.get("source_port", 12345)
         dst_port = data.get("dest_port", 80)
         protocol = data.get("protocol", "TCP")
@@ -266,9 +281,9 @@ def test_scapy_packet():
 @token_required
 def log_attack_all_layers():
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         attack_type = data.get("attack_type", "unknown")
-        source_ip = data.get("source_ip", "127.0.0.1")
+        source_ip = data.get("source_ip") or _get_client_ip()
         payload = data.get("payload", "")
         confidence = data.get("confidence", 0.95)
         layer = data.get("layer", "application")

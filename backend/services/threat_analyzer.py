@@ -134,17 +134,29 @@ class ThreatAnalyzer:
         return threat
     
     def get_dashboard_stats(self):
-        """Get dashboard statistics"""
+        """Get dashboard statistics — computed from actual threat logs"""
+        total = len(self.threats_log)
+        blocked = sum(1 for t in self.threats_log if t.get('action') in ('block', 'quarantine'))
+        now = datetime.now(timezone.utc)
+        one_hour_ago = now - timedelta(hours=1)
+        threats_last_hour = sum(
+            1 for t in self.threats_log
+            if datetime.fromisoformat(t.get('timestamp', now.isoformat())) > one_hour_ago
+        )
+        critical = sum(1 for t in self.threats_log if t.get('analysis', {}).get('threat_level') in ('CRITICAL', 'critical') or t.get('confidence', 0) > 0.8)
+        phishing = sum(1 for t in self.threats_log if t.get('type') == 'phishing_email')
+        malware = sum(1 for t in self.threats_log if t.get('type') == 'malware')
+        network = sum(1 for t in self.threats_log if t.get('type') in ('exploit_attempt', 'ddos', 'suspicious'))
         return {
-            'total_threats_detected': 156,
-            'threats_blocked': 142,
-            'threats_in_last_hour': random.randint(3, 15),
-            'critical_threats': 5,
-            'phishing_emails': 34,
-            'malware_detected': 12,
-            'network_attacks': 8,
+            'total_threats_detected': total,
+            'threats_blocked': blocked,
+            'threats_in_last_hour': threats_last_hour,
+            'critical_threats': critical,
+            'phishing_emails': phishing,
+            'malware_detected': malware,
+            'network_attacks': network,
             'system_uptime': '99.8%',
-            'last_update': datetime.utcnow().isoformat()
+            'last_update': now.isoformat()
         }
     
     def get_recent_threats(self, limit=10):
@@ -156,15 +168,32 @@ class ThreatAnalyzer:
     def get_threat_timeline(self, hours=24):
         """Get threat timeline for graph"""
         timeline = []
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         for i in range(hours):
             hour = now - timedelta(hours=i)
             timeline.append({
                 'time': hour.strftime('%H:%M'),
-                'threats': random.randint(0, 10),
-                'blocked': random.randint(0, 8),
+                'threats': 0,
+                'blocked': 0,
                 'timestamp': hour.isoformat()
             })
         
+        # Populate from actual threats log
+        for threat in self.threats_log:
+            try:
+                threat_time = datetime.fromisoformat(threat.get('timestamp', ''))
+                for entry in timeline:
+                    entry_dt = datetime.fromisoformat(entry['timestamp'])
+                    if abs((threat_time - entry_dt).total_seconds()) < 3600:
+                        entry['threats'] += 1
+                        if threat.get('action') in ('block', 'quarantine'):
+                            entry['blocked'] += 1
+                        break
+            except Exception:
+                continue
+        
         return sorted(timeline, key=lambda x: x['timestamp'])
+
+# Global instance
+threat_analyzer = ThreatAnalyzer()

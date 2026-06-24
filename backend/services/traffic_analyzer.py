@@ -2,7 +2,7 @@
 import json
 import logging
 import csv
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from collections import deque
 import threading
@@ -46,7 +46,7 @@ class TrafficAnalyzer:
                 
     def log_packet(self, packet_data, layer="application"):
         with self.lock:
-            timestamp = datetime.utcnow().isoformat()
+            timestamp = datetime.now(timezone.utc).isoformat()
             row = [
                 timestamp,
                 packet_data.get("source_ip", ""),
@@ -68,7 +68,7 @@ class TrafficAnalyzer:
             
     def log_attack(self, attack_data, layer="application"):
         with self.lock:
-            timestamp = datetime.utcnow().isoformat()
+            timestamp = datetime.now(timezone.utc).isoformat()
             row = [
                 timestamp,
                 attack_data.get("attack_type", ""),

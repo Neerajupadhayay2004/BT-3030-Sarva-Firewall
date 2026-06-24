@@ -5,7 +5,7 @@ XSS Attack Tracker - Tracks and logs all XSS attempts
 import time
 import json
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 
 class XSSTracker:
     def __init__(self, max_logs=100):
@@ -13,16 +13,17 @@ class XSSTracker:
         self.blocked_count = 0
         self.total_attempts = 0
         
-    def log_attack(self, payload: str, source: str = "web") -> dict:
+    def log_attack(self, payload: str, source: str = "web", source_ip: str = None) -> dict:
         """Log a new XSS attempt"""
         self.total_attempts += 1
         self.blocked_count += 1
         
         attack = {
             "id": self.total_attempts,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "payload": payload,
             "source": source,
+            "source_ip": source_ip,
             "blocked": True,
             "severity": "HIGH"
         }
@@ -32,7 +33,7 @@ class XSSTracker:
         
     def get_stats(self) -> dict:
         """Get XSS statistics"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         last_hour = [
             a for a in self.attack_log 
             if (now - datetime.fromisoformat(a["timestamp"])).total_seconds() < 3600

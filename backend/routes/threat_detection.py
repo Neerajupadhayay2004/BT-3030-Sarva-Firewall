@@ -1,11 +1,11 @@
 from flask import Blueprint, request, jsonify
 import logging
-from services.threat_analyzer import ThreatAnalyzer
+from services.threat_analyzer import threat_analyzer
 from utils.security import token_required
 
 logger = logging.getLogger(__name__)
 threat_bp = Blueprint('threats', __name__)
-analyzer = ThreatAnalyzer()
+analyzer = threat_analyzer
 
 @threat_bp.route('/analyze/email', methods=['POST'])
 @token_required

@@ -6,9 +6,16 @@ Protected with JWT Authentication and Path Validation
 from flask import Blueprint, request, jsonify
 from flask_socketio import emit
 import logging
-from datetime import datetime, timedelta
-import numpy as np
-import pandas as pd
+from datetime import datetime, timedelta, timezone
+# Optional heavy libs — use lightweight fallbacks if not installed
+try:
+    import numpy as np
+    import pandas as pd
+    HAS_NUMPY = True
+except Exception:
+    np = None
+    pd = None
+    HAS_NUMPY = False
 import json
 from collections import deque
 import threading
@@ -60,7 +67,7 @@ def get_models_status():
             'status': 'success',
             'models_loaded': models_status,
             'total_models': len(models_status),
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }), 200
     except Exception as e:
         logger.error(f"Error getting models status: {str(e)}")
@@ -132,7 +139,7 @@ def predict_threat():
             'threat_level': threat_level,
             'explanation': explanation,
             'llm_analysis': llm_analysis,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }
         
         threat_buffer.append(result)
@@ -255,12 +262,17 @@ def get_threat_timeline():
         for item in timeline_data:
             if 'threat_level' in item:
                 threat_counts[item['threat_level']] += 1
+        # use numpy mean if available, else fallback
+        if HAS_NUMPY and confidence_values:
+            avg_conf = float(np.mean(confidence_values))
+        else:
+            avg_conf = float(sum(confidence_values) / len(confidence_values)) if confidence_values else 0.0
         return jsonify({
             'status': 'success',
             'total_threats': len(timeline_data),
             'threat_breakdown': threat_counts,
             'timeline': timeline_data,
-            'average_confidence': float(np.mean(confidence_values)) if confidence_values else 0.0
+            'average_confidence': avg_conf
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -323,6 +335,33 @@ def get_recent_attacks():
         limit = int(request.args.get('limit', 20))
         return jsonify({'status': 'success', 'attacks': firewall_tracker.get_recent_attacks(limit)}), 200
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@advanced_bp.route('/firewall/log-attack', methods=['POST'])
+@token_required
+def log_attack_manually():
+    try:
+        data = request.get_json()
+        attack_type = data.get('attack_type', 'unknown')
+        payload = data.get('payload', '')
+        confidence = float(data.get('confidence', 0.9))
+        
+        # Get real client IP
+        from app import _get_client_ip
+        source_ip = _get_client_ip()
+        
+        log_entry = firewall_tracker.log_attack(
+            attack_type=attack_type,
+            source_ip=source_ip,
+            payload=payload,
+            blocked=True,
+            confidence=confidence
+        )
+        
+        return jsonify({'status': 'success', 'entry': log_entry}), 200
+    except Exception as e:
+        logger.error(f"Error logging attack: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 def register_socketio_handlers(socketio):

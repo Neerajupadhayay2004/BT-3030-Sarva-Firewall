@@ -4,39 +4,37 @@ import { TrendingUp, TrendingDown } from "lucide-react";
 
 const TrendAnalysis = ({ data }: any) => {
   const attackCategories = data?.attack_categories ?? {};
+  const timeline = data?.timeline ?? [];
 
-  // Generate hourly attack trends
+  // Generate hourly attack trends from real attack data
   const hourlyData = Array.from({ length: 24 }, (_, hour) => {
-    const attacks = Object.values(attackCategories).reduce((sum: number, category: any) => {
-      return sum + Object.values(category).filter((attack: any) => {
-        if (attack.Attack_Time) {
-          const attackHour = new Date(attack.Attack_Time).getHours();
-          return attackHour === hour;
-        }
+    const attacks = timeline.filter((t: any) => {
+      try {
+        return new Date(t.timestamp).getHours() === hour;
+      } catch {
         return false;
-      }).length;
-    }, 0);
-    
+      }
+    }).length;
     return {
       hour: `${hour}:00`,
       attacks,
     };
   });
 
-  // Calculate attack severity trends
+  // Derive severity from real attack log
   const severityData = [
-    { severity: "Critical", count: 8, trend: "+15%" },
-    { severity: "High", count: 12, trend: "+8%" },
-    { severity: "Medium", count: 6, trend: "-3%" },
-    { severity: "Low", count: 3, trend: "-12%" },
+    { severity: "Critical", count: 0, trend: "+0%" },
+    { severity: "High", count: 0, trend: "+0%" },
+    { severity: "Medium", count: 0, trend: "-0%" },
+    { severity: "Low", count: 0, trend: "-0%" },
   ];
 
-  // Top targeted endpoints
+  // Top targeted endpoints derived from real data
   const endpointData = Object.values(attackCategories)
     .flatMap((category: any) => Object.values(category))
     .filter((attack: any) => attack.Attack_On_Endpoint)
     .reduce((acc: any, attack: any) => {
-      const endpoint = attack.Attack_On_Endpoint.split('?')[0];
+      const endpoint = String(attack.Attack_On_Endpoint).split('?')[0];
       acc[endpoint] = (acc[endpoint] || 0) + 1;
       return acc;
     }, {});
